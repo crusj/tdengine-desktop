@@ -1,6 +1,8 @@
 use std::cell::{Cell, OnceCell};
 use std::io::prelude::*;
 use std::ops::{Index, IndexMut};
+use std::rc::Rc;
+use std::string::ToString;
 use std::sync::Mutex;
 
 use dioxus::prelude::*;
@@ -30,7 +32,8 @@ lazy_static! {
 }
 
 fn main() {
-    tokio::runtime::Runtime::new().unwrap().block_on(async {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    runtime.block_on(async {
         let mut hosts: Vec<HostData> = Vec::new();
         for conf in CONF.sources.iter() {
             let host = connect_host(conf.clone()).await;
@@ -49,9 +52,12 @@ fn main() {
         let _ = TAOS.lock().unwrap().set(hosts);
     });
 
+
     // ssh_tunnel(TEST_HOST.to_string(), TEST_USER.to_string());
-    dioxus_desktop::launch_cfg(
-        App,
+    dioxus_desktop::launch_with_props(
+        App, AppProps {
+            runtime: Rc::new(runtime)
+        },
         dioxus_desktop::Config::new()
             .with_custom_head(r#"<link rel="stylesheet" href="public/tailwind.css">"#.to_string())
             .with_window(WindowBuilder::new().with_resizable(true).with_inner_size(
@@ -60,7 +66,7 @@ fn main() {
     );
 }
 
-fn get_rows() -> (Vec<Vec<String>>, i64, Vec<String>) {
+async fn get_rows() -> (Vec<Vec<String>>, i64, Vec<String>) {
     let page = PAGE.lock().unwrap().get();
     let stable = CURRENT_STABLE.lock().unwrap().get_mut().clone();
     let robot_id = ROBOT_ID.lock().unwrap().get_mut().clone();
@@ -70,7 +76,7 @@ fn get_rows() -> (Vec<Vec<String>>, i64, Vec<String>) {
         Some(robot_id)
     };
 
-    let (mut rt, count) = tokio::runtime::Runtime::new().unwrap().block_on(async {
+    let (mut rt, count) = {
         let mut taos = TAOS.lock().unwrap();
         let taos = taos.get_mut().unwrap();
         let taos = match &taos.index(0).taos {
@@ -84,7 +90,8 @@ fn get_rows() -> (Vec<Vec<String>>, i64, Vec<String>) {
             .await
             .unwrap();
         rows
-    });
+    };
+
     let mut from_headers = vec![];
     for item in rt.get(0).unwrap() {
         from_headers.push(item.to_string())
@@ -97,8 +104,12 @@ fn get_rows() -> (Vec<Vec<String>>, i64, Vec<String>) {
     }
 }
 
+struct AppProps {
+    runtime: Rc<tokio::runtime::Runtime>,
+}
+
 #[allow(non_snake_case)]
-fn App(cx: Scope) -> Element {
+fn App(cx: Scope<AppProps>) -> Element {
     let window_size = dioxus_desktop::use_window(cx).inner_size();
     // 计算宽高
     // 1/5 4/5
@@ -106,7 +117,10 @@ fn App(cx: Scope) -> Element {
     let table_width = window_size.width as i64 - nav_width;
 
     let table_data_state = use_state(cx, || {
-        let (rows, total_size, headers) = get_rows();
+        let start = std::time::Instant::now();
+        let (rows, total_size, headers) = cx.props.runtime.block_on(async {
+            get_rows().await
+        });
         let l = headers.len();
         let changed_size = vec![0; headers.len()];
         let real_moving_size = vec![0; headers.len()];
@@ -118,6 +132,7 @@ fn App(cx: Scope) -> Element {
         };
 
         TableData {
+            runtime: cx.props.runtime.clone(),
             headers,
             rows,
             total_size,
@@ -125,6 +140,7 @@ fn App(cx: Scope) -> Element {
             changed_size: changed_size.clone(),
             real_moving_size: real_moving_size.clone(),
             widths: cal_widths(table_width, l as i64, changed_size, real_moving_size),
+            spend: start.elapsed().as_millis().to_string(),
         }
     });
 
@@ -139,25 +155,25 @@ fn App(cx: Scope) -> Element {
                 width: nav_width,
                 stables: stables,
                 on_stable_change: move |msg: String| { // stable change
-                    message_handler(Message::ChangeStable(msg, table_width,table_data_state.clone()));
+                   message_handler(cx.props.runtime.clone(), Message::ChangeStable(msg, table_width,table_data_state.clone()))
                 },
                 on_host_change: move |ip: String| {
                    let stable = CURRENT_STABLE.lock().unwrap().get_mut().clone();
                    turn_taos(ip);
-                   message_handler(Message::ChangeStable(stable, table_width,table_data_state.clone()));
+                   message_handler(cx.props.runtime.clone(),Message::ChangeStable(stable, table_width,table_data_state.clone()));
                 }
             },
             Table {
                 width: table_width,
                 table_data: table_data_state.clone(),
                 on_search: |msg: String| {
-                    message_handler(Message::StableFilter(msg,table_data_state.clone()));
+                    message_handler(cx.props.runtime.clone(),Message::StableFilter(msg,table_data_state.clone()));
                 },
                 on_resize: move |(index, moving_size)| {
-                    message_handler(Message::Resizing(table_width, index, moving_size, table_data_state.clone()));
+                    message_handler(cx.props.runtime.clone(),Message::Resizing(table_width, index, moving_size, table_data_state.clone()));
                 },
                 on_resize_over: |_| {
-                    message_handler(Message::ResizeOver(table_data_state.clone()));
+                    message_handler(cx.props.runtime.clone(),Message::ResizeOver(table_data_state.clone()));
                 }
             }
         }
@@ -167,7 +183,7 @@ fn App(cx: Scope) -> Element {
                 button {
                     class: "mr-2 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded",
                     onclick: |_| {
-                        message_handler(Message::PrevPage(table_data_state.clone()));
+                        message_handler(cx.props.runtime.clone(),Message::PrevPage(table_data_state.clone()));
                     },
                     "上一页"
                 }
@@ -176,7 +192,7 @@ fn App(cx: Scope) -> Element {
                 button {
                     class: "mr-2 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded",
                     onclick: move |_| {
-                        message_handler(Message::NextPage(table_data_state.clone()));
+                        message_handler(cx.props.runtime.clone(),Message::NextPage(table_data_state.clone()));
                     },
                     "下一页"
                 }
@@ -224,6 +240,9 @@ fn Table<'a>(cx: Scope<'a, TableList<'a>>) -> Element<'a> {
                         },
                         "搜索"
                     }
+                }
+                div {
+                    "{cx.props.table_data.spend}ms"
                 }
             }
             table {
@@ -327,7 +346,6 @@ fn Stables<'a>(cx: Scope<'a, StablesList<'a>>) -> Element<'a> {
             },
             ul {
                 class: "list-none border",
-
                 for stable in cx.props.stables.iter() {
                     li {
                         class: "{f(stable.clone())}",
@@ -345,6 +363,7 @@ fn Stables<'a>(cx: Scope<'a, StablesList<'a>>) -> Element<'a> {
 // connect to taos
 
 pub struct TableData {
+    runtime: Rc<tokio::runtime::Runtime>,
     headers: Vec<String>,
     rows: Vec<Vec<String>>,
     total_size: i64,
@@ -352,6 +371,7 @@ pub struct TableData {
     changed_size: Vec<i64>,
     real_moving_size: Vec<i64>,
     widths: Vec<i64>,
+    spend: String,
 }
 
 pub struct HostData {
@@ -387,7 +407,7 @@ async fn connect_host(config: Source) -> HostData {
                 host_data.local_port.unwrap(),
                 host_data.port
             )
-            .as_str(),
+                .as_str(),
             format!("{}@{}", host_data.ssh_user.clone().unwrap(), host_data.ip).as_str(),
         ]);
         command.spawn().unwrap();

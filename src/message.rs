@@ -1,4 +1,5 @@
 use std::ops::IndexMut;
+use std::rc::Rc;
 
 use dioxus::hooks::UseState;
 
@@ -39,12 +40,13 @@ pub fn cal_widths(width: i64, size: i64, changed_widths: Vec<i64>, real_moving_w
     widths
 }
 
-pub fn message_handler(msg: Message) {
+pub fn message_handler(runtime: Rc<tokio::runtime::Runtime>, msg: Message) {
     match msg {
         Message::ChangeStable(stable, size, table_data_state) => {
             PAGE.lock().unwrap().set(1);
             CURRENT_STABLE.lock().unwrap().set(stable);
-            let (rows, total_size, headers) = get_rows();
+            let start = std::time::Instant::now();
+            let (rows, total_size, headers) = runtime.block_on(async { get_rows().await });
             let l = headers.len();
             let total_page: i64;
             if total_size / 20 == 0 && total_size > 20 {
@@ -53,6 +55,7 @@ pub fn message_handler(msg: Message) {
                 total_page = total_size / 20 + 1;
             };
             table_data_state.set(TableData {
+                runtime: runtime.clone(),
                 headers,
                 rows,
                 total_size,
@@ -60,6 +63,7 @@ pub fn message_handler(msg: Message) {
                 changed_size: vec![0; l],
                 real_moving_size: vec![0; l],
                 widths: cal_widths(size, l as i64, vec![0; l], vec![0; l]),
+                spend: start.elapsed().as_millis().to_string(),
             });
         }
 
@@ -67,8 +71,8 @@ pub fn message_handler(msg: Message) {
             if !search_robot_id.is_empty() {
                 PAGE.lock().unwrap().set(1);
                 ROBOT_ID.lock().unwrap().set(search_robot_id);
-                let (rows, total_size, headers) = get_rows();
-
+                let start = std::time::Instant::now();
+                let (rows, total_size, headers) = runtime.block_on(async { get_rows().await });
 
                 let table_data = table_data_state.get();
                 let total_page: i64;
@@ -78,6 +82,7 @@ pub fn message_handler(msg: Message) {
                     total_page = total_size / 20 + 1;
                 };
                 table_data_state.set(TableData {
+                    runtime: runtime.clone(),
                     headers,
                     rows,
                     total_page,
@@ -85,6 +90,7 @@ pub fn message_handler(msg: Message) {
                     changed_size: table_data.changed_size.clone(),
                     real_moving_size: table_data.real_moving_size.clone(),
                     widths: table_data.widths.clone(),
+                    spend: start.elapsed().as_millis().to_string(),
                 });
             }
         }
@@ -96,7 +102,8 @@ pub fn message_handler(msg: Message) {
                 page -= 1;
             }
             PAGE.lock().unwrap().set(page);
-            let (rows, total_size, headers) = get_rows();
+            let start = std::time::Instant::now();
+            let (rows, total_size, headers) = runtime.block_on(async { get_rows().await });
 
             let table_data = table_data_state.get();
             let total_page: i64;
@@ -106,6 +113,7 @@ pub fn message_handler(msg: Message) {
                 total_page = total_size / 20 + 1;
             };
             table_data_state.set(TableData {
+                runtime: runtime.clone(),
                 headers,
                 rows,
                 total_size,
@@ -113,12 +121,14 @@ pub fn message_handler(msg: Message) {
                 changed_size: table_data.changed_size.clone(),
                 real_moving_size: table_data.real_moving_size.clone(),
                 widths: table_data.widths.clone(),
+                spend: start.elapsed().as_millis().to_string(),
             });
         }
         Message::NextPage(table_data_state) => {
             let page = PAGE.lock().unwrap().get();
             PAGE.lock().unwrap().set(page + 1);
-            let (rows, total_size, headers) = get_rows();
+            let start = std::time::Instant::now();
+            let (rows, total_size, headers) = runtime.block_on(async { get_rows().await });
 
             let table_data = table_data_state.get();
             let total_page: i64;
@@ -128,6 +138,7 @@ pub fn message_handler(msg: Message) {
                 total_page = total_size / 20 + 1;
             };
             table_data_state.set(TableData {
+                runtime: runtime.clone(),
                 headers,
                 rows,
                 total_size,
@@ -135,6 +146,7 @@ pub fn message_handler(msg: Message) {
                 changed_size: table_data.changed_size.clone(),
                 real_moving_size: table_data.real_moving_size.clone(),
                 widths: table_data.widths.clone(),
+                spend: start.elapsed().as_millis().to_string(),
             });
         }
         Message::Resizing(width, index, size, table_data_state) => {
@@ -147,6 +159,7 @@ pub fn message_handler(msg: Message) {
             let new_widths = cal_widths(width, l as i64, table_data.changed_size.clone(), table_data.real_moving_size.clone());
             // println!("{} {} {} {:?} {}", width, index, size, new_widths, l);
             table_data_state.set(TableData {
+                runtime: runtime.clone(),
                 headers,
                 rows: table_data.rows.clone(),
                 total_page: table_data.total_page.clone(),
@@ -154,6 +167,7 @@ pub fn message_handler(msg: Message) {
                 changed_size: table_data.changed_size.clone(),
                 real_moving_size,
                 widths: new_widths,
+                spend: table_data.spend.clone(),
             });
         }
         Message::ResizeOver(table_data_state) => {
@@ -166,6 +180,7 @@ pub fn message_handler(msg: Message) {
             }
 
             table_data_state.set(TableData {
+                runtime: runtime.clone(),
                 headers: table_data.headers.clone(),
                 rows: table_data.rows.clone(),
                 total_size: table_data.total_size.clone(),
@@ -173,6 +188,7 @@ pub fn message_handler(msg: Message) {
                 changed_size: tmp,
                 real_moving_size: vec![0; l],
                 widths: table_data.widths.clone(),
+                spend: table_data.spend.clone(),
             });
         }
     }
