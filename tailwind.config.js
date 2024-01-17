@@ -5,7 +5,11 @@ module.exports = {
     "./dist/**/*.html",
   ],
   theme: {
-    extend: {},
+    extend: {
+      fontFamily: {
+          hack: ['hack'],
+      },
+    },
   },
   plugins: [
       require('@tailwindcss/forms'),

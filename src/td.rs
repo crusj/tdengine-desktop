@@ -1,7 +1,8 @@
+use crate::PAGE_SIZE;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Local};
-use taos::*;
 use taos::BorrowedValue::BigInt;
+use taos::*;
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Status {
@@ -54,15 +55,19 @@ impl STable {
     }
 
     // 获取超表下的数据
-    pub async fn get_rows(&self, taos: &Taos, page: i32, robot_id: Option<String>) -> Result<(Vec<Vec<String>>, Option<i64>)> {
-        let offset = (page - 1) * 20;
+    pub async fn get_rows(
+        &self,
+        taos: &Taos,
+        page: i32,
+        robot_id: Option<String>,
+    ) -> Result<(Vec<Vec<String>>, Option<i64>)> {
+        let offset = (page as i64 - 1) * PAGE_SIZE;
         // robot_id
         let robot_id_where = if let Some(robot_id) = robot_id {
             format!("where robot_id like \"%{}%\"", robot_id)
         } else {
             "".to_string()
         };
-
 
         // 查询总的记录树
         let count_sql = format!(
@@ -81,8 +86,8 @@ impl STable {
         };
 
         let sql = format!(
-            "select * from {} {} order by ts desc limit 20 offset {}",
-            self.stable_name, robot_id_where, offset
+            "select * from {} {} order by ts desc limit {} offset {}",
+            self.stable_name, robot_id_where, PAGE_SIZE, offset
         );
         println!("{}", sql);
         let mut result = taos.query(sql).await?;

@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use dioxus::hooks::UseState;
 
-use crate::{CURRENT_STABLE, get_rows, PAGE, ROBOT_ID, TableData};
+use crate::{get_rows, TableData, CURRENT_STABLE, PAGE, PAGE_SIZE, ROBOT_ID};
 
 pub enum Message {
     ChangeStable(String, i64, UseState<TableData>),
@@ -14,7 +14,12 @@ pub enum Message {
     ResizeOver(UseState<TableData>),
 }
 
-pub fn cal_widths(width: i64, size: i64, changed_widths: Vec<i64>, real_moving_widths: Vec<i64>) -> Vec<i64> {
+pub fn cal_widths(
+    width: i64,
+    size: i64,
+    changed_widths: Vec<i64>,
+    real_moving_widths: Vec<i64>,
+) -> Vec<i64> {
     let mut widths: Vec<i64> = Vec::new();
     let each_width = width / size as i64;
     for _ in 0..size {
@@ -49,10 +54,10 @@ pub fn message_handler(runtime: Rc<tokio::runtime::Runtime>, msg: Message) {
             let (rows, total_size, headers) = runtime.block_on(async { get_rows().await });
             let l = headers.len();
             let total_page: i64;
-            if total_size / 20 == 0 && total_size > 20 {
-                total_page = total_size / 20;
+            if total_size / PAGE_SIZE == 0 && total_size > PAGE_SIZE {
+                total_page = total_size / PAGE_SIZE;
             } else {
-                total_page = total_size / 20 + 1;
+                total_page = total_size / PAGE_SIZE + 1;
             };
             table_data_state.set(TableData {
                 runtime: runtime.clone(),
@@ -76,10 +81,10 @@ pub fn message_handler(runtime: Rc<tokio::runtime::Runtime>, msg: Message) {
 
                 let table_data = table_data_state.get();
                 let total_page: i64;
-                if total_size / 20 == 0 && total_size > 20 {
-                    total_page = total_size / 20;
+                if total_size / PAGE_SIZE == 0 && total_size > PAGE_SIZE {
+                    total_page = total_size / PAGE_SIZE;
                 } else {
-                    total_page = total_size / 20 + 1;
+                    total_page = total_size / PAGE_SIZE + 1;
                 };
                 table_data_state.set(TableData {
                     runtime: runtime.clone(),
@@ -156,7 +161,12 @@ pub fn message_handler(runtime: Rc<tokio::runtime::Runtime>, msg: Message) {
 
             let headers = table_data.headers.clone();
             let l = headers.len();
-            let new_widths = cal_widths(width, l as i64, table_data.changed_size.clone(), table_data.real_moving_size.clone());
+            let new_widths = cal_widths(
+                width,
+                l as i64,
+                table_data.changed_size.clone(),
+                table_data.real_moving_size.clone(),
+            );
             // println!("{} {} {} {:?} {}", width, index, size, new_widths, l);
             table_data_state.set(TableData {
                 runtime: runtime.clone(),

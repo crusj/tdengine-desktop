@@ -24,6 +24,7 @@ static RESIZING: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 static X: Mutex<Cell<f64>> = Mutex::new(Cell::new(0.0));
 static TAOS: Mutex<OnceCell<Vec<HostData>>> = Mutex::new(OnceCell::new());
 static TIMES: Mutex<Cell<i64>> = Mutex::new(Cell::new(0));
+static PAGE_SIZE: i64 = 30;
 
 lazy_static! {
     static ref CURRENT_STABLE: Mutex<Cell<String>> = Mutex::new(Cell::new(String::default()));
@@ -33,6 +34,7 @@ lazy_static! {
 
 fn main() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
+    let a = runtime.handle();
     runtime.block_on(async {
         let mut hosts: Vec<HostData> = Vec::new();
         for conf in CONF.sources.iter() {
@@ -52,11 +54,11 @@ fn main() {
         let _ = TAOS.lock().unwrap().set(hosts);
     });
 
-
     // ssh_tunnel(TEST_HOST.to_string(), TEST_USER.to_string());
     dioxus_desktop::launch_with_props(
-        App, AppProps {
-            runtime: Rc::new(runtime)
+        App,
+        AppProps {
+            runtime: Rc::new(runtime),
         },
         dioxus_desktop::Config::new()
             .with_custom_head(r#"<link rel="stylesheet" href="public/tailwind.css">"#.to_string())
@@ -118,17 +120,15 @@ fn App(cx: Scope<AppProps>) -> Element {
 
     let table_data_state = use_state(cx, || {
         let start = std::time::Instant::now();
-        let (rows, total_size, headers) = cx.props.runtime.block_on(async {
-            get_rows().await
-        });
+        let (rows, total_size, headers) = cx.props.runtime.block_on(async { get_rows().await });
         let l = headers.len();
         let changed_size = vec![0; headers.len()];
         let real_moving_size = vec![0; headers.len()];
         let total_page: i64;
-        if total_size / 20 == 0 && total_size > 20 {
-            total_page = total_size / 20;
+        if total_size / PAGE_SIZE == 0 && total_size > PAGE_SIZE {
+            total_page = total_size / PAGE_SIZE;
         } else {
-            total_page = total_size / 20 + 1;
+            total_page = total_size / PAGE_SIZE + 1;
         };
 
         TableData {
@@ -151,6 +151,7 @@ fn App(cx: Scope<AppProps>) -> Element {
     cx.render(rsx! {
         div {
             class: "flex p-1",
+            font_family: "hack",
             Stables {
                 width: nav_width,
                 stables: stables,
@@ -181,7 +182,7 @@ fn App(cx: Scope<AppProps>) -> Element {
             class:"flex justify-end p-1",
             div {
                 button {
-                    class: "mr-2 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded",
+                    class: "mr-2 bg-sky-300 hover:bg-sky-500 text-white font-bold py-2 px-4 rounded",
                     onclick: |_| {
                         message_handler(cx.props.runtime.clone(),Message::PrevPage(table_data_state.clone()));
                     },
@@ -190,7 +191,7 @@ fn App(cx: Scope<AppProps>) -> Element {
             }
             div {
                 button {
-                    class: "mr-2 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded",
+                    class: "mr-2 bg-sky-300 hover:bg-sky-500 text-white font-bold py-2 px-4 rounded",
                     onclick: move |_| {
                         message_handler(cx.props.runtime.clone(),Message::NextPage(table_data_state.clone()));
                     },
@@ -199,7 +200,7 @@ fn App(cx: Scope<AppProps>) -> Element {
             }
             div {
                 button {
-                    class: "bg-blue-500 text-white font-bold py-2 px-4 rounded",
+                    class: "bg-sky-300 text-white font-bold py-2 px-4 rounded",
                     "Total{table_data_state.total_size} Per20 {page}/{table_data_state.total_page}"
                 }
             }
@@ -234,7 +235,7 @@ fn Table<'a>(cx: Scope<'a, TableList<'a>>) -> Element<'a> {
                 }
                 div {
                     button {
-                        class: "bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded",
+                        class: "bg-sky-500 hover:bg-sky-700 text-white font-bold py-2 px-4 rounded",
                         onclick: move |_| {
                             cx.props.on_search.call(robot_id_state.to_string());
                         },
@@ -242,11 +243,14 @@ fn Table<'a>(cx: Scope<'a, TableList<'a>>) -> Element<'a> {
                     }
                 }
                 div {
-                    "{cx.props.table_data.spend}ms"
+                    class: "text-rose-400 flex justify-center items-center ml-auto",
+                    p {
+                        " {cx.props.table_data.spend}ms"
+                    }
                 }
             }
             table {
-                class: "border border-slate-400",
+                class: "border border-slate-400 text-gray-600 ",
                 table_layout: "fixed",
                 border: "1",
                 width: "100%",
@@ -255,7 +259,8 @@ fn Table<'a>(cx: Scope<'a, TableList<'a>>) -> Element<'a> {
                     tr {
                         for (index, header) in cx.props.table_data.headers.iter().enumerate() {
                             td {
-                                class:"border border-slate-300 bg-indigo-700 text-white text-left hover:cursor-pointer overflow-clip",
+                                class:"border border-slate-300 bg-sky-500 text-white text-left hover:cursor-pointer overflow-clip",
+                                style:"txt-overflow: ellipsis;white-space: nowrap;",
                                 onmousedown: |_| {
                                     let window = dioxus_desktop::use_window(cx);
                                     RESIZING.lock().unwrap().set(true);
@@ -281,7 +286,7 @@ fn Table<'a>(cx: Scope<'a, TableList<'a>>) -> Element<'a> {
                                         cx.props.on_resize_over.call(());
                                     }
                                 },
-                                "{header}"
+                                " {header}"
                             }
                         }
                     }
@@ -299,6 +304,7 @@ fn Table<'a>(cx: Scope<'a, TableList<'a>>) -> Element<'a> {
                             for (_index,cell) in row.iter().enumerate() {
                                 td {
                                     class:"border border-slate-300 overflow-clip text-left",
+                                    style:"txt-overflow: ellipsis;white-space: nowrap;",
                                     "{cell}"
                                 }
                             }
@@ -322,10 +328,10 @@ struct StablesList<'a> {
 fn Stables<'a>(cx: Scope<'a, StablesList<'a>>) -> Element<'a> {
     let f = |c: String| {
         if c == CURRENT_STABLE.lock().unwrap().get_mut().clone() {
-            "border-b  cursor-pointer hover:bg-sky-700 p-2 border-l-4 border-indigo-500 ..."
+            "border-b  cursor-pointer hover:bg-gray-200 p-2 border-l-4 border-sky-500 ..."
                 .to_string()
         } else {
-            "border-b  cursor-pointer hover:bg-sky-700 p-2 ".to_string()
+            "border-b  cursor-pointer hover:bg-gray-200 p-2 ".to_string()
         }
     };
     render!(
@@ -344,15 +350,18 @@ fn Stables<'a>(cx: Scope<'a, StablesList<'a>>) -> Element<'a> {
                     )
                 },
             },
-            ul {
+            div {
                 class: "list-none border",
                 for stable in cx.props.stables.iter() {
-                    li {
-                        class: "{f(stable.clone())}",
-                        onclick: move |_evt| {
-                            cx.props.on_stable_change.call(stable.clone());
-                        },
-                        "{stable}",
+                    div {
+                        class: "flex w-full",
+                        li {
+                            class: "{f(stable.clone())} text-gray-600 w-full",
+                            onclick: move |_evt| {
+                                cx.props.on_stable_change.call(stable.clone());
+                            },
+                            " {stable}",
+                        }
                     }
                 }
             }
@@ -407,7 +416,7 @@ async fn connect_host(config: Source) -> HostData {
                 host_data.local_port.unwrap(),
                 host_data.port
             )
-                .as_str(),
+            .as_str(),
             format!("{}@{}", host_data.ssh_user.clone().unwrap(), host_data.ip).as_str(),
         ]);
         command.spawn().unwrap();
