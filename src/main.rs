@@ -14,7 +14,6 @@ use config::CONF;
 use message::*;
 
 use crate::config::Source;
-
 mod config;
 mod log;
 mod message;
@@ -98,7 +97,6 @@ async fn get_rows() -> (Vec<Vec<String>>, i64, Vec<String>) {
     for item in rt.get(0).unwrap() {
         from_headers.push(item.to_string())
     }
-    println!("{:?}, {:?}", rt, count.clone().unwrap());
     if rt.len() == 1 {
         (Vec::new(), count.unwrap(), from_headers)
     } else {
@@ -118,7 +116,7 @@ fn App(cx: Scope<AppProps>) -> Element {
     let nav_width = (window_size.width as f64 * 0.25) as i64;
     let table_width = window_size.width as i64 - nav_width;
 
-    let table_data_state = use_state(cx, || {
+    let table_data_state = use_ref(cx, || {
         let start = std::time::Instant::now();
         let (rows, total_size, headers) = cx.props.runtime.block_on(async { get_rows().await });
         let l = headers.len();
@@ -132,7 +130,6 @@ fn App(cx: Scope<AppProps>) -> Element {
         };
 
         TableData {
-            runtime: cx.props.runtime.clone(),
             headers,
             rows,
             total_size,
@@ -201,7 +198,7 @@ fn App(cx: Scope<AppProps>) -> Element {
             div {
                 button {
                     class: "bg-sky-300 text-white font-bold py-2 px-4 rounded",
-                    "Total{table_data_state.total_size} Per20 {page}/{table_data_state.total_page}"
+                    "Total{table_data_state.read().total_size} Per20 {page}/{table_data_state.read().total_page}"
                 }
             }
         }
@@ -210,7 +207,7 @@ fn App(cx: Scope<AppProps>) -> Element {
 
 #[derive(Props)]
 struct TableList<'a> {
-    table_data: UseState<TableData>,
+    table_data: UseRef<TableData>,
     width: i64,
     on_search: EventHandler<'a, String>,
     on_resize: EventHandler<'a, (i64, i64)>,
@@ -245,7 +242,7 @@ fn Table<'a>(cx: Scope<'a, TableList<'a>>) -> Element<'a> {
                 div {
                     class: "text-rose-400 flex justify-center items-center ml-auto",
                     p {
-                        " {cx.props.table_data.spend}ms"
+                        " {cx.props.table_data.read().spend}ms"
                     }
                 }
             }
@@ -257,7 +254,7 @@ fn Table<'a>(cx: Scope<'a, TableList<'a>>) -> Element<'a> {
 
                 thead {
                     tr {
-                        for (index, header) in cx.props.table_data.headers.iter().enumerate() {
+                        for (index, header) in cx.props.table_data.read().headers.iter().enumerate() {
                             td {
                                 class:"border border-slate-300 bg-sky-500 text-white text-left hover:cursor-pointer overflow-clip",
                                 style:"txt-overflow: ellipsis;white-space: nowrap;",
@@ -292,14 +289,14 @@ fn Table<'a>(cx: Scope<'a, TableList<'a>>) -> Element<'a> {
                     }
                 }
                 colgroup {
-                    for (index, _row) in cx.props.table_data.headers.iter().enumerate() {
+                    for (index, _row) in cx.props.table_data.read().headers.iter().enumerate() {
                         col {
-                            style:"width:{cx.props.table_data.widths.get(index).unwrap()}px",
+                            style:"width:{cx.props.table_data.read().widths.get(index).unwrap()}px",
                         }
                     }
                 }
                 tbody {
-                    for row in cx.props.table_data.rows.iter() {
+                    for row in cx.props.table_data.read().rows.iter() {
                         tr {
                             for (_index,cell) in row.iter().enumerate() {
                                 td {
@@ -372,7 +369,6 @@ fn Stables<'a>(cx: Scope<'a, StablesList<'a>>) -> Element<'a> {
 // connect to taos
 
 pub struct TableData {
-    runtime: Rc<tokio::runtime::Runtime>,
     headers: Vec<String>,
     rows: Vec<Vec<String>>,
     total_size: i64,
@@ -432,10 +428,8 @@ async fn connect_taos(host_data: &mut HostData) {
     } else {
         dsn = format!("taos://{}:6030", host_data.ip);
     }
-    println!("===================={}", dsn);
     let builder = TaosBuilder::from_dsn(dsn).unwrap();
     let taos = builder.build().await.unwrap();
-    println!("{}", &host_data.db);
     taos.use_database(&host_data.db).await.unwrap();
     let stables = td::STable::get_stables(&taos).await.unwrap();
     let stables = stables
@@ -449,7 +443,6 @@ async fn connect_taos(host_data: &mut HostData) {
 
 fn turn_taos(ip: String) {
     {
-        println!("=======================reverse taos start");
         let mut index = 0;
         let mut taos = TAOS.try_lock().unwrap();
         let mut taos_data = taos.take().unwrap();
@@ -461,7 +454,6 @@ fn turn_taos(ip: String) {
         }
         taos_data.swap(0, index);
         let _ = taos.set(taos_data);
-        println!("=======================reverse_taos end");
     }
     print_current_host();
 }
@@ -476,9 +468,4 @@ fn get_stables() -> Vec<String> {
         .clone()
 }
 
-fn print_current_host() {
-    println!(
-        "=======================change host{}",
-        TAOS.lock().unwrap().get_mut().unwrap().index(0).ip.clone()
-    );
-}
+fn print_current_host() {}

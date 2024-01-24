@@ -1,17 +1,17 @@
 use std::ops::IndexMut;
 use std::rc::Rc;
 
-use dioxus::hooks::UseState;
+use dioxus::hooks::{use_future, UseRef, UseState};
 
 use crate::{get_rows, TableData, CURRENT_STABLE, PAGE, PAGE_SIZE, ROBOT_ID};
 
 pub enum Message {
-    ChangeStable(String, i64, UseState<TableData>),
-    StableFilter(String, UseState<TableData>),
-    PrevPage(UseState<TableData>),
-    NextPage(UseState<TableData>),
-    Resizing(i64, i64, i64, UseState<TableData>),
-    ResizeOver(UseState<TableData>),
+    ChangeStable(String, i64, UseRef<TableData>),
+    StableFilter(String, UseRef<TableData>),
+    PrevPage(UseRef<TableData>),
+    NextPage(UseRef<TableData>),
+    Resizing(i64, i64, i64, UseRef<TableData>),
+    ResizeOver(UseRef<TableData>),
 }
 
 pub fn cal_widths(
@@ -51,24 +51,35 @@ pub fn message_handler(runtime: Rc<tokio::runtime::Runtime>, msg: Message) {
             PAGE.lock().unwrap().set(1);
             CURRENT_STABLE.lock().unwrap().set(stable);
             let start = std::time::Instant::now();
-            let (rows, total_size, headers) = runtime.block_on(async { get_rows().await });
-            let l = headers.len();
-            let total_page: i64;
-            if total_size / PAGE_SIZE == 0 && total_size > PAGE_SIZE {
-                total_page = total_size / PAGE_SIZE;
-            } else {
-                total_page = total_size / PAGE_SIZE + 1;
-            };
-            table_data_state.set(TableData {
-                runtime: runtime.clone(),
-                headers,
-                rows,
-                total_size,
-                total_page,
-                changed_size: vec![0; l],
-                real_moving_size: vec![0; l],
-                widths: cal_widths(size, l as i64, vec![0; l], vec![0; l]),
-                spend: start.elapsed().as_millis().to_string(),
+
+            table_data_state.with_mut(|data| {
+                let (rows, total_size, headers) = runtime.block_on(async { get_rows().await });
+                let l = headers.len();
+                let total_page: i64;
+                if total_size / PAGE_SIZE == 0 && total_size > PAGE_SIZE {
+                    total_page = total_size / PAGE_SIZE;
+                } else {
+                    total_page = total_size / PAGE_SIZE + 1;
+                };
+                (
+                    data.headers,
+                    data.rows,
+                    data.total_size,
+                    data.total_page,
+                    data.changed_size,
+                    data.real_moving_size,
+                    data.widths,
+                    data.spend,
+                ) = (
+                    headers,
+                    rows,
+                    total_size,
+                    total_page,
+                    vec![0; l],
+                    vec![0; l],
+                    cal_widths(size, l as i64, vec![0; l], vec![0; l]),
+                    start.elapsed().as_millis().to_string(),
+                )
             });
         }
 
@@ -79,23 +90,26 @@ pub fn message_handler(runtime: Rc<tokio::runtime::Runtime>, msg: Message) {
                 let start = std::time::Instant::now();
                 let (rows, total_size, headers) = runtime.block_on(async { get_rows().await });
 
-                let table_data = table_data_state.get();
-                let total_page: i64;
-                if total_size / PAGE_SIZE == 0 && total_size > PAGE_SIZE {
-                    total_page = total_size / PAGE_SIZE;
-                } else {
-                    total_page = total_size / PAGE_SIZE + 1;
-                };
-                table_data_state.set(TableData {
-                    runtime: runtime.clone(),
-                    headers,
-                    rows,
-                    total_page,
-                    total_size,
-                    changed_size: table_data.changed_size.clone(),
-                    real_moving_size: table_data.real_moving_size.clone(),
-                    widths: table_data.widths.clone(),
-                    spend: start.elapsed().as_millis().to_string(),
+                table_data_state.with_mut(|data| {
+                    let total_page: i64;
+                    if total_size / PAGE_SIZE == 0 && total_size > PAGE_SIZE {
+                        total_page = total_size / PAGE_SIZE;
+                    } else {
+                        total_page = total_size / PAGE_SIZE + 1;
+                    };
+                    (
+                        data.headers,
+                        data.rows,
+                        data.total_page,
+                        data.total_size,
+                        data.spend,
+                    ) = (
+                        headers,
+                        rows,
+                        total_page,
+                        total_size,
+                        start.elapsed().as_millis().to_string(),
+                    );
                 });
             }
         }
@@ -109,24 +123,26 @@ pub fn message_handler(runtime: Rc<tokio::runtime::Runtime>, msg: Message) {
             PAGE.lock().unwrap().set(page);
             let start = std::time::Instant::now();
             let (rows, total_size, headers) = runtime.block_on(async { get_rows().await });
-
-            let table_data = table_data_state.get();
-            let total_page: i64;
-            if total_size / 20 == 0 && total_size > 20 {
-                total_page = total_size / 20;
-            } else {
-                total_page = total_size / 20 + 1;
-            };
-            table_data_state.set(TableData {
-                runtime: runtime.clone(),
-                headers,
-                rows,
-                total_size,
-                total_page,
-                changed_size: table_data.changed_size.clone(),
-                real_moving_size: table_data.real_moving_size.clone(),
-                widths: table_data.widths.clone(),
-                spend: start.elapsed().as_millis().to_string(),
+            table_data_state.with_mut(|data| {
+                let total_page: i64;
+                if total_size / PAGE_SIZE == 0 && total_size > PAGE_SIZE {
+                    total_page = total_size / PAGE_SIZE;
+                } else {
+                    total_page = total_size / PAGE_SIZE + 1;
+                };
+                (
+                    data.headers,
+                    data.rows,
+                    data.total_page,
+                    data.total_size,
+                    data.spend,
+                ) = (
+                    headers,
+                    rows,
+                    total_page,
+                    total_size,
+                    start.elapsed().as_millis().to_string(),
+                );
             });
         }
         Message::NextPage(table_data_state) => {
@@ -134,71 +150,46 @@ pub fn message_handler(runtime: Rc<tokio::runtime::Runtime>, msg: Message) {
             PAGE.lock().unwrap().set(page + 1);
             let start = std::time::Instant::now();
             let (rows, total_size, headers) = runtime.block_on(async { get_rows().await });
-
-            let table_data = table_data_state.get();
-            let total_page: i64;
-            if total_size / 20 == 0 && total_size > 20 {
-                total_page = total_size / 20;
-            } else {
-                total_page = total_size / 20 + 1;
-            };
-            table_data_state.set(TableData {
-                runtime: runtime.clone(),
-                headers,
-                rows,
-                total_size,
-                total_page,
-                changed_size: table_data.changed_size.clone(),
-                real_moving_size: table_data.real_moving_size.clone(),
-                widths: table_data.widths.clone(),
-                spend: start.elapsed().as_millis().to_string(),
+            table_data_state.with_mut(|data| {
+                let total_page: i64;
+                if total_size / PAGE_SIZE == 0 && total_size > PAGE_SIZE {
+                    total_page = total_size / PAGE_SIZE;
+                } else {
+                    total_page = total_size / PAGE_SIZE + 1;
+                };
+                (
+                    data.headers,
+                    data.rows,
+                    data.total_page,
+                    data.total_size,
+                    data.spend,
+                ) = (
+                    headers,
+                    rows,
+                    total_page,
+                    total_size,
+                    start.elapsed().as_millis().to_string(),
+                );
             });
         }
         Message::Resizing(width, index, size, table_data_state) => {
-            let table_data = table_data_state.get();
-            let mut real_moving_size = table_data.real_moving_size.clone();
-            *real_moving_size.index_mut(index as usize) = size;
-
-            let headers = table_data.headers.clone();
-            let l = headers.len();
-            let new_widths = cal_widths(
-                width,
-                l as i64,
-                table_data.changed_size.clone(),
-                table_data.real_moving_size.clone(),
-            );
-            // println!("{} {} {} {:?} {}", width, index, size, new_widths, l);
-            table_data_state.set(TableData {
-                runtime: runtime.clone(),
-                headers,
-                rows: table_data.rows.clone(),
-                total_page: table_data.total_page.clone(),
-                total_size: table_data.total_size.clone(),
-                changed_size: table_data.changed_size.clone(),
-                real_moving_size,
-                widths: new_widths,
-                spend: table_data.spend.clone(),
+            table_data_state.with_mut(|data| {
+                let mut real_moving_size = data.real_moving_size.clone();
+                *data.real_moving_size.index_mut(index as usize) = size;
+                data.widths = cal_widths(
+                    width,
+                    data.headers.len() as i64,
+                    data.changed_size.clone(),
+                    data.real_moving_size.clone(),
+                );
             });
         }
         Message::ResizeOver(table_data_state) => {
-            let table_data = table_data_state.get();
-            let l = table_data.headers.len();
-            let mut tmp = table_data.changed_size.clone();
-            let tmp2 = table_data.real_moving_size.clone();
-            for (index, value) in tmp2.iter().enumerate() {
-                *tmp.index_mut(index) += value;
-            }
-
-            table_data_state.set(TableData {
-                runtime: runtime.clone(),
-                headers: table_data.headers.clone(),
-                rows: table_data.rows.clone(),
-                total_size: table_data.total_size.clone(),
-                total_page: table_data.total_page,
-                changed_size: tmp,
-                real_moving_size: vec![0; l],
-                widths: table_data.widths.clone(),
-                spend: table_data.spend.clone(),
+            table_data_state.with_mut(|data| {
+                for (index, value) in data.real_moving_size.iter().enumerate() {
+                    *data.changed_size.index_mut(index) += value;
+                }
+                data.real_moving_size = vec![0; data.headers.len()];
             });
         }
     }

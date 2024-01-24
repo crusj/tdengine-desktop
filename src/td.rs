@@ -74,7 +74,6 @@ impl STable {
             "select count(*) as c from {} {}",
             self.stable_name, robot_id_where
         );
-        println!("{}", count_sql);
         let mut count_result = taos.query(count_sql).await?;
         let mut total_size = 0;
         if let Some(row) = count_result.rows().try_next().await? {
@@ -89,7 +88,6 @@ impl STable {
             "select * from {} {} order by ts desc limit {} offset {}",
             self.stable_name, robot_id_where, PAGE_SIZE, offset
         );
-        println!("{}", sql);
         let mut result = taos.query(sql).await?;
 
         let fields = result
