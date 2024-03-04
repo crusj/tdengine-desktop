@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 lazy_static! {
     pub static ref CONF: Config = {
-        let mut file = File::open("./config.toml").expect("invaid file path");
+        let mut file = File::open("/tmp/config.toml").expect("invaid file path");
         let mut content = String::new();
         file.read_to_string(&mut content)
             .expect("read config failed");

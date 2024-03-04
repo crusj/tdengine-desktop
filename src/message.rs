@@ -1,17 +1,19 @@
 use std::ops::IndexMut;
-use std::rc::Rc;
 
-use dioxus::hooks::{use_future, UseRef, UseState};
+use dioxus::prelude::Signal;
+use dioxus::signals::Writable;
 
-use crate::{get_rows, TableData, CURRENT_STABLE, PAGE, PAGE_SIZE, ROBOT_ID};
+use crate::{CURRENT_STABLE, get_rows, PAGE, PAGE_SIZE, ROBOT_ID, TableData};
+
+type UT = Signal<TableData>;
 
 pub enum Message {
-    ChangeStable(String, i64, UseRef<TableData>),
-    StableFilter(String, UseRef<TableData>),
-    PrevPage(UseRef<TableData>),
-    NextPage(UseRef<TableData>),
-    Resizing(i64, i64, i64, UseRef<TableData>),
-    ResizeOver(UseRef<TableData>),
+    ChangeStable(String, i64, UT),
+    StableFilter(String, UT),
+    PrevPage(UT),
+    NextPage(UT),
+    Resizing(i64, i64, i64, UT),
+    ResizeOver(UT),
 }
 
 pub fn cal_widths(
@@ -45,15 +47,15 @@ pub fn cal_widths(
     widths
 }
 
-pub fn message_handler(runtime: Rc<tokio::runtime::Runtime>, msg: Message) {
+pub async fn message_handler(msg: Message) {
     match msg {
-        Message::ChangeStable(stable, size, table_data_state) => {
+        Message::ChangeStable(stable, size, mut table_data_state) => {
             PAGE.lock().unwrap().set(1);
             CURRENT_STABLE.lock().unwrap().set(stable);
             let start = std::time::Instant::now();
 
+            let (rows, total_size, headers) = get_rows().await;
             table_data_state.with_mut(|data| {
-                let (rows, total_size, headers) = runtime.block_on(async { get_rows().await });
                 let l = headers.len();
                 let total_page: i64;
                 if total_size / PAGE_SIZE == 0 && total_size > PAGE_SIZE {
@@ -83,37 +85,35 @@ pub fn message_handler(runtime: Rc<tokio::runtime::Runtime>, msg: Message) {
             });
         }
 
-        Message::StableFilter(search_robot_id, table_data_state) => {
-            if !search_robot_id.is_empty() {
-                PAGE.lock().unwrap().set(1);
-                ROBOT_ID.lock().unwrap().set(search_robot_id);
-                let start = std::time::Instant::now();
-                let (rows, total_size, headers) = runtime.block_on(async { get_rows().await });
+        Message::StableFilter(search_robot_id, mut table_data_state) => {
+            PAGE.lock().unwrap().set(1);
+            ROBOT_ID.lock().unwrap().set(search_robot_id);
+            let start = std::time::Instant::now();
+            let (rows, total_size, headers) = get_rows().await;
 
-                table_data_state.with_mut(|data| {
-                    let total_page: i64;
-                    if total_size / PAGE_SIZE == 0 && total_size > PAGE_SIZE {
-                        total_page = total_size / PAGE_SIZE;
-                    } else {
-                        total_page = total_size / PAGE_SIZE + 1;
-                    };
-                    (
-                        data.headers,
-                        data.rows,
-                        data.total_page,
-                        data.total_size,
-                        data.spend,
-                    ) = (
-                        headers,
-                        rows,
-                        total_page,
-                        total_size,
-                        start.elapsed().as_millis().to_string(),
-                    );
-                });
-            }
+            table_data_state.with_mut(|data| {
+                let total_page: i64;
+                if total_size / PAGE_SIZE == 0 && total_size > PAGE_SIZE {
+                    total_page = total_size / PAGE_SIZE;
+                } else {
+                    total_page = total_size / PAGE_SIZE + 1;
+                };
+                (
+                    data.headers,
+                    data.rows,
+                    data.total_page,
+                    data.total_size,
+                    data.spend,
+                ) = (
+                    headers,
+                    rows,
+                    total_page,
+                    total_size,
+                    start.elapsed().as_millis().to_string(),
+                );
+            });
         }
-        Message::PrevPage(table_data_state) => {
+        Message::PrevPage(mut table_data_state) => {
             let mut page = PAGE.lock().unwrap().get();
             if page - 1 < 1 {
                 page = 1;
@@ -122,7 +122,7 @@ pub fn message_handler(runtime: Rc<tokio::runtime::Runtime>, msg: Message) {
             }
             PAGE.lock().unwrap().set(page);
             let start = std::time::Instant::now();
-            let (rows, total_size, headers) = runtime.block_on(async { get_rows().await });
+            let (rows, total_size, headers) = get_rows().await;
             table_data_state.with_mut(|data| {
                 let total_page: i64;
                 if total_size / PAGE_SIZE == 0 && total_size > PAGE_SIZE {
@@ -145,11 +145,11 @@ pub fn message_handler(runtime: Rc<tokio::runtime::Runtime>, msg: Message) {
                 );
             });
         }
-        Message::NextPage(table_data_state) => {
+        Message::NextPage(mut table_data_state) => {
             let page = PAGE.lock().unwrap().get();
             PAGE.lock().unwrap().set(page + 1);
             let start = std::time::Instant::now();
-            let (rows, total_size, headers) = runtime.block_on(async { get_rows().await });
+            let (rows, total_size, headers) = get_rows().await;
             table_data_state.with_mut(|data| {
                 let total_page: i64;
                 if total_size / PAGE_SIZE == 0 && total_size > PAGE_SIZE {
@@ -172,9 +172,8 @@ pub fn message_handler(runtime: Rc<tokio::runtime::Runtime>, msg: Message) {
                 );
             });
         }
-        Message::Resizing(width, index, size, table_data_state) => {
+        Message::Resizing(width, index, size, mut table_data_state) => {
             table_data_state.with_mut(|data| {
-                let mut real_moving_size = data.real_moving_size.clone();
                 *data.real_moving_size.index_mut(index as usize) = size;
                 data.widths = cal_widths(
                     width,
@@ -184,7 +183,7 @@ pub fn message_handler(runtime: Rc<tokio::runtime::Runtime>, msg: Message) {
                 );
             });
         }
-        Message::ResizeOver(table_data_state) => {
+        Message::ResizeOver(mut table_data_state) => {
             table_data_state.with_mut(|data| {
                 for (index, value) in data.real_moving_size.iter().enumerate() {
                     *data.changed_size.index_mut(index) += value;

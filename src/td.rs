@@ -1,8 +1,9 @@
-use crate::PAGE_SIZE;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Local};
-use taos::BorrowedValue::BigInt;
 use taos::*;
+use taos::BorrowedValue::BigInt;
+
+use crate::PAGE_SIZE;
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Status {
@@ -106,7 +107,7 @@ impl STable {
                     BorrowedValue::Timestamp(value) => {
                         let ts = value
                             .to_datetime_with_tz()
-                            .format("%Y-%m-%d %H:%m:%S")
+                            .format("%Y-%m-%d %H:%M:%S")
                             .to_string();
                         data.push(ts);
                     }
